@@ -21,6 +21,7 @@ const ENV_MNC_ADDR = "MAGIC_NIX_CACHE_ADDRESS";
 const FACT_ENV_VARS_PRESENT = "required_env_vars_present";
 const FACT_SENT_SIGTERM = "sent_sigterm";
 const FACT_DIFF_STORE_ENABLED = "diff_store";
+const FACT_SAVE_CACHE_ENABLED = "save_cache";
 const FACT_ALREADY_RUNNING = "noop_mode";
 
 const STATE_DAEMONDIR = "MAGIC_NIX_CACHE_DAEMONDIR";
@@ -38,6 +39,7 @@ const TEXT_TRUST_UNKNOWN =
 class MagicNixCacheAction extends DetSysAction {
   private hostAndPort: string;
   private diffStore: boolean;
+  private saveCache: boolean;
   private httpClient: Got;
   private daemonDir: string;
   private daemonStarted: boolean;
@@ -57,8 +59,11 @@ class MagicNixCacheAction extends DetSysAction {
 
     this.hostAndPort = inputs.getString("listen");
     this.diffStore = inputs.getBool("diff-store");
+    this.saveCache = inputs.getBool("save-cache");
 
     this.addFact(FACT_DIFF_STORE_ENABLED, this.diffStore);
+    this.addFact(FACT_SAVE_CACHE_ENABLED, this.saveCache);
+    this.disableDaemonClosureCacheSaves();
 
     this.httpClient = got.extend({
       retry: {
@@ -100,6 +105,22 @@ class MagicNixCacheAction extends DetSysAction {
     }
 
     this.stapleFile("daemon.log", path.join(this.daemonDir, "daemon.log"));
+  }
+
+  private disableDaemonClosureCacheSaves(): void {
+    if (this.saveCache) {
+      return;
+    }
+
+    Reflect.set(
+      this,
+      "saveCachedVersion",
+      async (_version: string, _toolPath: string): Promise<void> => {
+        actionsCore.debug(
+          "save-cache is false - Skipping daemon closure artifact cache save during setup",
+        );
+      },
+    );
   }
 
   async main(): Promise<void> {
@@ -289,6 +310,7 @@ class MagicNixCacheAction extends DetSysAction {
             "--use-flakehub",
             useFlakeHub,
           ]
+            .concat(this.saveCache ? [] : ["--restore-only"])
             .concat(this.diffStore ? ["--diff-store"] : [])
             .concat(
               useFlakeHub !== "disabled"
@@ -387,6 +409,13 @@ class MagicNixCacheAction extends DetSysAction {
   async tearDownAutoCache(): Promise<void> {
     if (!this.daemonStarted) {
       actionsCore.debug("magic-nix-cache not started - Skipping");
+      return;
+    }
+
+    if (!this.saveCache) {
+      actionsCore.debug(
+        "save-cache is false - Skipping workflow-finish to prevent daemon closure from being cached",
+      );
       return;
     }
 

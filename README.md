@@ -24,6 +24,7 @@ Magic Nix Cache uses the GitHub Actions [built-in cache][gha-cache] to share bui
 1. **Zero configuration**. Add our Action to your workflow.
    That's it.
    Everything built in your workflow is cached.
+
 1. **No secrets**. Forks and pull requests benefit from the cache, too.
 1. **Secure**. Magic Nix Cache follows the [same semantics as the GitHub Actions cache][semantics] and malicious pull requests cannot pollute your project.
 1. **Private**. The cache is stored in the GitHub Actions cache, not with an additional third party.
@@ -79,6 +80,26 @@ The caching daemon and Nix both handle this gracefully, and won't cause your CI 
 When the rate limit is exceeded while pulling dependencies, your workflow may perform more builds than usual.
 When the rate limit is exceeded while uploading to the cache, the remainder of those store paths is uploaded on the next run of the workflow.
 
+## Restore-only mode
+
+By default, Magic Nix Cache saves newly built derivations to the cache. If you want to only restore cached derivations without adding new builds, use the `save-cache` input:
+
+```yaml
+- uses: DeterminateSystems/magic-nix-cache-action@main
+  with:
+    save-cache: false
+```
+
+With `save-cache: false`, the daemon is started with `--restore-only`, and the action also skips persisting the downloaded daemon closure into the GitHub Actions cache. This keeps restore-only runs from writing new cache entries while still restoring previously cached derivations.
+
+For example, to enable cache saving only on the `main` branch:
+
+```yaml
+- uses: DeterminateSystems/magic-nix-cache-action@main
+  with:
+    save-cache: ${{ github.ref == 'refs/heads/main' }}
+```
+
 ## Concepts
 
 ### Upstream cache
@@ -106,6 +127,7 @@ cat action.yml| nix run nixpkgs#yq-go -- '[[ "Parameter", "Description", "Requir
 | `flakehub-cache-server`     | The FlakeHub binary cache server.                                                                               |          | https://cache.flakehub.com                               |
 | `flakehub-flake-name`       | The name of your flake on FlakeHub. The empty string autodetects your FlakeHub flake.                           |          | `""`                                                     |
 | `listen`                    | The host and port to listen on.                                                                                 |          | 127.0.0.1:37515                                          |
+| `save-cache`                | Whether to save newly built derivations back to cache. Set this false to run in restore-only mode.              |          | `true`                                                   |
 | `source-binary`             | Run a version of the cache binary from somewhere already on disk. Conflicts with all other `source-*` options.  |          |                                                          |
 | `source-branch`             | The branch of `magic-nix-cache` to use. Conflicts with all other `source-*` options.                            |          | main                                                     |
 | `source-pr`                 | The PR of `magic-nix-cache` to use. Conflicts with all other `source-*` options.                                |          |                                                          |

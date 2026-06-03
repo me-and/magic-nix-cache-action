@@ -108803,6 +108803,7 @@ var ENV_MNC_ADDR = "MAGIC_NIX_CACHE_ADDRESS";
 var FACT_ENV_VARS_PRESENT = "required_env_vars_present";
 var FACT_SENT_SIGTERM = "sent_sigterm";
 var FACT_DIFF_STORE_ENABLED = "diff_store";
+var FACT_SAVE_CACHE_ENABLED = "save_cache";
 var FACT_ALREADY_RUNNING = "noop_mode";
 var STATE_DAEMONDIR = "MAGIC_NIX_CACHE_DAEMONDIR";
 var STATE_ERROR_IN_MAIN = "ERROR_IN_MAIN";
@@ -108822,7 +108823,10 @@ var MagicNixCacheAction = class extends DetSysAction {
     });
     this.hostAndPort = inputs_exports.getString("listen");
     this.diffStore = inputs_exports.getBool("diff-store");
+    this.saveCache = inputs_exports.getBool("save-cache");
     this.addFact(FACT_DIFF_STORE_ENABLED, this.diffStore);
+    this.addFact(FACT_SAVE_CACHE_ENABLED, this.saveCache);
+    this.disableDaemonClosureCacheSaves();
     this.httpClient = dist_source.extend({
       retry: {
         limit: 1,
@@ -108858,6 +108862,20 @@ var MagicNixCacheAction = class extends DetSysAction {
       exportVariable(ENV_MNC_ADDR, this.hostAndPort);
     }
     this.stapleFile("daemon.log", external_path_.join(this.daemonDir, "daemon.log"));
+  }
+  disableDaemonClosureCacheSaves() {
+    if (this.saveCache) {
+      return;
+    }
+    Reflect.set(
+      this,
+      "saveCachedVersion",
+      async (_version, _toolPath) => {
+        debug(
+          "save-cache is false - Skipping daemon closure artifact cache save during setup"
+        );
+      }
+    );
   }
   async main() {
     if (this.alreadyRunning) {
@@ -109005,7 +109023,7 @@ var MagicNixCacheAction = class extends DetSysAction {
           useGhaCache,
           "--use-flakehub",
           useFlakeHub
-        ].concat(this.diffStore ? ["--diff-store"] : []).concat(
+        ].concat(this.saveCache ? [] : ["--restore-only"]).concat(this.diffStore ? ["--diff-store"] : []).concat(
           useFlakeHub !== "disabled" ? [
             "--flakehub-cache-server",
             flakeHubCacheServer,
@@ -109078,6 +109096,12 @@ var MagicNixCacheAction = class extends DetSysAction {
   async tearDownAutoCache() {
     if (!this.daemonStarted) {
       debug("magic-nix-cache not started - Skipping");
+      return;
+    }
+    if (!this.saveCache) {
+      debug(
+        "save-cache is false - Skipping workflow-finish to prevent daemon closure from being cached"
+      );
       return;
     }
     const pidFile = external_path_.join(this.daemonDir, "daemon.pid");
